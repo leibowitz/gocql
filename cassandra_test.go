@@ -152,10 +152,17 @@ func TestAuthentication(t *testing.T) {
 
 //TestRingDiscovery makes sure that you can autodiscover other cluster members when you seed a cluster config with just one node
 func TestRingDiscovery(t *testing.T) {
-	cluster := createCluster()
-	cluster.Hosts = clusterHosts[:1]
-	cluster.DiscoverHosts = true
 
+	cluster := NewCluster(clusterHosts[0])
+	cluster.ProtoVersion = *flagProto
+	cluster.CQLVersion = *flagCQL
+	cluster.Timeout = 5 * time.Second
+	cluster.Consistency = Quorum
+	if *flagRetry > 0 {
+		cluster.RetryPolicy = &SimpleRetryPolicy{NumRetries: *flagRetry}
+	}
+	cluster.DiscoverHosts = true
+	cluster = addSslOptions(cluster)
 	session, err := cluster.CreateSession()
 	if err != nil {
 		t.Fatalf("got error connecting to the cluster %v", err)
@@ -176,8 +183,8 @@ func TestRingDiscovery(t *testing.T) {
 }
 
 func TestEmptyHosts(t *testing.T) {
-	cluster := createCluster()
-	cluster.Hosts = nil
+	cluster := NewCluster()
+	cluster = addSslOptions(cluster)
 	if session, err := cluster.CreateSession(); err == nil {
 		session.Close()
 		t.Error("expected err, got nil")
@@ -200,8 +207,11 @@ func TestUseStatementError(t *testing.T) {
 
 //TestInvalidKeyspace checks that an invalid keyspace will return promptly and without a flood of connections
 func TestInvalidKeyspace(t *testing.T) {
-	cluster := createCluster()
+	cluster := NewCluster(clusterHosts...)
+	cluster.ProtoVersion = *flagProto
+	cluster.CQLVersion = *flagCQL
 	cluster.Keyspace = "invalidKeyspace"
+	cluster = addSslOptions(cluster)
 	session, err := cluster.CreateSession()
 	if err != nil {
 		if err != ErrNoConnectionsStarted {
@@ -575,17 +585,15 @@ func TestNotEnoughQueryArgs(t *testing.T) {
 func TestCreateSessionTimeout(t *testing.T) {
 	go func() {
 		<-time.After(2 * time.Second)
-		t.Error("no startup timeout")
+		t.Fatal("no startup timeout")
 	}()
+	c := NewCluster("127.0.0.1:1")
+	c = addSslOptions(c)
+	_, err := c.CreateSession()
 
-	cluster := createCluster()
-	cluster.Hosts = []string{"127.0.0.1:1"}
-	session, err := cluster.CreateSession()
 	if err == nil {
-		session.Close()
 		t.Fatal("expected ErrNoConnectionsStarted, but no error was returned.")
 	}
-
 	if err != ErrNoConnectionsStarted {
 		t.Fatalf("expected ErrNoConnectionsStarted, but received %v", err)
 	}
